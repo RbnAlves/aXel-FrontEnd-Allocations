@@ -1,0 +1,2795 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Invoice Approval Platform API",
+    "description": "API for the Invoice Approval Platform",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/auth/token": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Login For Access Token",
+        "description": "Get an access token for authentication.\n\nIn a real application, this would validate against Azure AD.\nFor this demo, we're simulating authentication with mock users.",
+        "operationId": "login_for_access_token_api_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_login_for_access_token_api_auth_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Token" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/azure-login": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Azure Login",
+        "description": "Login with Azure AD credentials.\n\nThis endpoint validates the Azure AD token and creates a user if they don't exist.\nOnly users from the mote.consulting organization are allowed.",
+        "operationId": "azure_login_api_auth_azure_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "type": "string", "title": "Token" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Token" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": ["Authentication"],
+        "summary": "Read Users Me",
+        "description": "Get the current user's information",
+        "operationId": "read_users_me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": ["Authentication"],
+        "summary": "Logout",
+        "description": "Logout the current user.\n\nThis endpoint acknowledges the logout request. The actual token invalidation\nhappens on the client side by removing the token from storage.\n\nIn a more complete implementation, we would add the token to a blacklist\nto invalidate it server-side.",
+        "operationId": "logout_api_auth_logout_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StandardResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/users/": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get Users",
+        "description": "Get all users (approver only).",
+        "operationId": "get_users_api_users__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 0, "title": "Skip" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 100, "title": "Limit" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/User" },
+                  "title": "Response Get Users Api Users  Get"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get User",
+        "description": "Get a specific user.\n\nUsers can only get their own information unless they are approvers.",
+        "operationId": "get_user_api_users__user_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "User Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/role": {
+      "put": {
+        "tags": ["Users"],
+        "summary": "Update User Role",
+        "description": "Update a user's role (admin only).",
+        "operationId": "update_user_role_api_users__user_id__role_put",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "User Id" }
+          },
+          {
+            "name": "role",
+            "in": "query",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/UserRole" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}/limits": {
+      "put": {
+        "tags": ["Users"],
+        "summary": "Update User Limits",
+        "description": "Update a user's spending limits (admin only).\n\nThis endpoint allows setting annual limits for each user. Accrued limits\nare calculated elsewhere based on the current date.",
+        "operationId": "update_user_limits_api_users__user_id__limits_put",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "User Id" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UserLimitsUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/User" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "Get Invoices",
+        "description": "Get invoices.\n\nNormal users can only see their own invoices.\nApprovers can see all invoices.",
+        "operationId": "get_invoices_api_invoices__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "description": "Filter by status",
+              "title": "Invoice Status"
+            },
+            "description": "Filter by status"
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "description": "Filter by type",
+              "title": "Type"
+            },
+            "description": "Filter by type"
+          },
+          {
+            "name": "date_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "type": "string", "format": "date" },
+                { "type": "null" }
+              ],
+              "description": "Filter by invoice date start",
+              "title": "Date Start"
+            },
+            "description": "Filter by invoice date start"
+          },
+          {
+            "name": "date_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "type": "string", "format": "date" },
+                { "type": "null" }
+              ],
+              "description": "Filter by invoice date end",
+              "title": "Date End"
+            },
+            "description": "Filter by invoice date end"
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 0, "title": "Skip" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 100, "title": "Limit" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Invoice" },
+                  "title": "Response Get Invoices Api Invoices  Get"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Invoices"],
+        "summary": "Create Invoice",
+        "operationId": "create_invoice_api_invoices__post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvoiceCreate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/{invoice_id}": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "Get Invoice",
+        "description": "Get a specific invoice.\n\nNormal users can only see their own invoices.\nApprovers can see all invoices.",
+        "operationId": "get_invoice_api_invoices__invoice_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Invoices"],
+        "summary": "Update Invoice",
+        "description": "Update an invoice.\n\nUsers can only update their own invoices that are in 'rejected' status.",
+        "operationId": "update_invoice_api_invoices__invoice_id__put",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvoiceUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Invoices"],
+        "summary": "Delete Invoice",
+        "description": "Delete an invoice.\n\nUsers can only delete their own invoices that are in 'pending' status.",
+        "operationId": "delete_invoice_api_invoices__invoice_id__delete",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/StandardResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/{invoice_id}/submit": {
+      "post": {
+        "tags": ["Invoices"],
+        "summary": "Submit Invoice",
+        "description": "Submit an invoice that was previously in SUBMITTED status (over accrued limits).\n\nThis changes the status from SUBMITTED to PENDING and updates the spending limits.\nOnly the owner of the invoice can submit it.",
+        "operationId": "submit_invoice_api_invoices__invoice_id__submit_post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/stats/dashboard": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "Get Dashboard Stats",
+        "description": "Get dashboard statistics.\n\nNormal users get stats for their own invoices.\nApprovers and Admins get stats for all invoices.",
+        "operationId": "get_dashboard_stats_api_invoices_stats_dashboard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/DashboardStats" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/invoices/export/excel": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "Export Invoices Excel",
+        "description": "Export invoices to Excel with various filter options.\n\nSupports filtering by:\n- Submission date range\n- Invoice date range\n- Expense type\n- Vendor NIF\n- User (collaborator)\n- Status\n- Amount range\n\nReturns an Excel file with invoice data formatted in a table.\nMaximum 10,000 records per export.",
+        "operationId": "export_invoices_excel_api_invoices_export_excel_get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "submission_date_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "type": "string", "format": "date" },
+                { "type": "null" }
+              ],
+              "description": "Filter by submission date start",
+              "title": "Submission Date Start"
+            },
+            "description": "Filter by submission date start"
+          },
+          {
+            "name": "submission_date_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "type": "string", "format": "date" },
+                { "type": "null" }
+              ],
+              "description": "Filter by submission date end",
+              "title": "Submission Date End"
+            },
+            "description": "Filter by submission date end"
+          },
+          {
+            "name": "invoice_date_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "type": "string", "format": "date" },
+                { "type": "null" }
+              ],
+              "description": "Filter by invoice date start",
+              "title": "Invoice Date Start"
+            },
+            "description": "Filter by invoice date start"
+          },
+          {
+            "name": "invoice_date_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                { "type": "string", "format": "date" },
+                { "type": "null" }
+              ],
+              "description": "Filter by invoice date end",
+              "title": "Invoice Date End"
+            },
+            "description": "Filter by invoice date end"
+          },
+          {
+            "name": "expense_type_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "integer" }, { "type": "null" }],
+              "description": "Filter by expense type ID",
+              "title": "Expense Type Id"
+            },
+            "description": "Filter by expense type ID"
+          },
+          {
+            "name": "vendor_nif",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "description": "Filter by vendor NIF",
+              "title": "Vendor Nif"
+            },
+            "description": "Filter by vendor NIF"
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "description": "Filter by user ID",
+              "title": "User Id"
+            },
+            "description": "Filter by user ID"
+          },
+          {
+            "name": "invoice_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "string" }, { "type": "null" }],
+              "description": "Filter by status",
+              "title": "Invoice Status"
+            },
+            "description": "Filter by status"
+          },
+          {
+            "name": "min_amount",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "number" }, { "type": "null" }],
+              "description": "Filter by minimum amount",
+              "title": "Min Amount"
+            },
+            "description": "Filter by minimum amount"
+          },
+          {
+            "name": "max_amount",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [{ "type": "number" }, { "type": "null" }],
+              "description": "Filter by maximum amount",
+              "title": "Max Amount"
+            },
+            "description": "Filter by maximum amount"
+          },
+          {
+            "name": "max_records",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "description": "Maximum records to export",
+              "default": 5000,
+              "title": "Max Records"
+            },
+            "description": "Maximum records to export"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/invoices/batch": {
+      "post": {
+        "tags": ["Invoices"],
+        "summary": "Create Batch Invoices",
+        "description": "Create multiple invoices at once distributed across users.\n\nOnly approvers can use this endpoint.\n- All invoices get same vendor/description from request\n- Each item specifies user_id and their allocated amount\n- All invoices created with status=APPROVED, type=COMPANY\n- Optionally save distribution as template for reuse\n- Returns invoice IDs + spending limit warnings (non-blocking)\n\nNote: invoice_number will be duplicated across all batch items (represents\nthe single vendor invoice being distributed). This is intentional for\nreconciliation with e-fatura.",
+        "operationId": "create_batch_invoices_api_invoices_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BatchInvoiceCreate" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchInvoiceResponse"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/invoices/batch/templates": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "List Batch Templates",
+        "description": "List saved batch templates.\n\nOnly approvers can access templates.\nReturns all templates with item counts.",
+        "operationId": "list_batch_templates_api_invoices_batch_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": { "$ref": "#/components/schemas/BatchTemplate" },
+                  "type": "array",
+                  "title": "Response List Batch Templates Api Invoices Batch Templates Get"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/invoices/batch/templates/{template_id}": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "Get Batch Template",
+        "description": "Get template details to prefill form.\n\nOnly approvers can access templates.\nReturns template with full item details (user_ids and amounts).",
+        "operationId": "get_batch_template_api_invoices_batch_templates__template_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Template Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BatchTemplateDetail" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/invoices": {
+      "get": {
+        "tags": ["Approvals"],
+        "summary": "Get Invoices For Approval",
+        "description": "Get all invoices for approval.\n\nOnly available to approvers.",
+        "operationId": "get_invoices_for_approval_api_approvals_invoices_get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 0, "title": "Skip" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "default": 100, "title": "Limit" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Invoice" },
+                  "title": "Response Get Invoices For Approval Api Approvals Invoices Get"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{invoice_id}/approve": {
+      "post": {
+        "tags": ["Approvals"],
+        "summary": "Approve Invoice",
+        "description": "Approve an invoice.\n\nOnly available to approvers.",
+        "operationId": "approve_invoice_api_approvals__invoice_id__approve_post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvoiceApprove" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{invoice_id}/pay": {
+      "post": {
+        "tags": ["Approvals"],
+        "summary": "Pay Invoice",
+        "description": "Pay an invoice.\n\nApprovers may pay an invoice directly or mark approved invoices as payed.",
+        "operationId": "pay_invoice_api_approvals__invoice_id__pay_post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvoiceApprove" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{invoice_id}/reject": {
+      "post": {
+        "tags": ["Approvals"],
+        "summary": "Reject Invoice",
+        "description": "Reject an invoice.\n\nOnly available to approvers.",
+        "operationId": "reject_invoice_api_approvals__invoice_id__reject_post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/InvoiceReject" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{invoice_id}/submit": {
+      "post": {
+        "tags": ["Approvals"],
+        "summary": "Submit Invoice For Approval",
+        "description": "Submit an invoice that was previously in SUBMITTED status for approval.\n\nThis is used when limits change (e.g., new month) and the user wants to submit\nan invoice that was previously above limits.",
+        "operationId": "submit_invoice_for_approval_api_approvals__invoice_id__submit_post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Invoice" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/history/{invoice_id}": {
+      "get": {
+        "tags": ["Approvals"],
+        "summary": "Get Approval History",
+        "description": "Get the approval history for an invoice.\n\nNormal users can only see history for their own invoices.\nApprovers can see history for all invoices.",
+        "operationId": "get_approval_history_api_approvals_history__invoice_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "invoice_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Invoice Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "type": "object", "additionalProperties": true },
+                  "title": "Response Get Approval History Api Approvals History  Invoice Id  Get"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/files/document/{document_id}": {
+      "get": {
+        "tags": ["Files"],
+        "summary": "Get Document",
+        "description": "Retrieve a document (PDF or image) from the database by its ID.\nUses standard Bearer token authentication via Authorization header.\n\nArgs:\n    document_id: The ID of the document to retrieve\n\nReturns:\n    The document file as a binary response",
+        "operationId": "get_document_api_files_document__document_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Document Id" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Successful Response" },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/files/document-with-token/{document_id}": {
+      "get": {
+        "tags": ["Files"],
+        "summary": "Get Document With Token",
+        "description": "Retrieve a document (PDF or image) from the database by its ID.\nUses token authentication via query parameter.\n\nArgs:\n    document_id: The ID of the document to retrieve\n    token: JWT token for authentication\n\nReturns:\n    The document file as a binary response",
+        "operationId": "get_document_with_token_api_files_document_with_token__document_id__get",
+        "parameters": [
+          {
+            "name": "document_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Document Id" }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "JWT token for authentication",
+              "title": "Token"
+            },
+            "description": "JWT token for authentication"
+          }
+        ],
+        "responses": {
+          "200": { "description": "Successful Response" },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/files/process-invoice-document": {
+      "post": {
+        "tags": ["Files"],
+        "summary": "Process Invoice Document Endpoint",
+        "operationId": "process_invoice_document_endpoint_api_files_process_invoice_document_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_process_invoice_document_endpoint_api_files_process_invoice_document_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Process Invoice Document Endpoint Api Files Process Invoice Document Post"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/expense-types/": {
+      "get": {
+        "tags": ["expense-types"],
+        "summary": "Get Expense Types",
+        "description": "Get all expense types",
+        "operationId": "get_expense_types_api_expense_types__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": { "$ref": "#/components/schemas/ExpenseType" },
+                  "type": "array",
+                  "title": "Response Get Expense Types Api Expense Types  Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/expense-types/{expense_type_id}": {
+      "get": {
+        "tags": ["expense-types"],
+        "summary": "Get Expense Type",
+        "description": "Get a specific expense type by ID",
+        "operationId": "get_expense_type_api_expense_types__expense_type_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "expense_type_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "title": "Expense Type Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ExpenseType" }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/meal-types/": {
+      "get": {
+        "tags": ["meal-types"],
+        "summary": "Get Meal Types",
+        "description": "Get all meal types from the MealType enum",
+        "operationId": "get_meal_types_api_meal_types__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": { "type": "string" },
+                    "type": "object"
+                  },
+                  "type": "array",
+                  "title": "Response Get Meal Types Api Meal Types  Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/reconciliation/upload-efatura": {
+      "post": {
+        "tags": ["Reconciliation"],
+        "summary": "Upload Efatura File",
+        "description": "Upload an e-fatura Excel file for reconciliation.\n\nValidates:\n- File type (Excel: .xlsx, .xls)\n- File size (max 20MB)\n- Row count (max 50k)\n\nReturns:\n- upload_id: Use this to inspect the file structure or start a reconciliation job",
+        "operationId": "upload_efatura_file_api_reconciliation_upload_efatura_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_efatura_file_api_reconciliation_upload_efatura_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/UploadResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/reconciliation/inspect/{upload_id}": {
+      "get": {
+        "tags": ["Reconciliation"],
+        "summary": "Inspect Uploaded File",
+        "description": "Inspect an uploaded e-fatura file to view its structure.\n\nReturns:\n- Detected headers with sample values\n- Row and column counts\n- Sample data rows\n- Warnings about missing expected columns\n\nThis helps you understand the file structure before starting reconciliation.",
+        "operationId": "inspect_uploaded_file_api_reconciliation_inspect__upload_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "upload_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Upload Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/FileInspection" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation/run": {
+      "post": {
+        "tags": ["Reconciliation"],
+        "summary": "Run Reconciliation",
+        "description": "Start a reconciliation job for an uploaded e-fatura file.\n\nValidates:\n- Upload exists and hasn't expired\n- Date range is valid (date_start < date_end)\n- Required columns are present in the file\n- Job queue is not full\n\nReturns:\n- job_id: Use this to check status and retrieve results",
+        "operationId": "run_reconciliation_api_reconciliation_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/JobCreateRequest" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/JobStatusResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        },
+        "security": [{ "OAuth2PasswordBearer": [] }]
+      }
+    },
+    "/api/reconciliation/status/{job_id}": {
+      "get": {
+        "tags": ["Reconciliation"],
+        "summary": "Get Job Status",
+        "description": "Get the current status of a reconciliation job.\n\nReturns:\n- Current job status (PENDING, RUNNING, COMPLETED, FAILED)\n- Progress percentage (0-100)\n- Timestamps for start and finish\n- Error message if failed\n\nUse this endpoint to poll for job completion.\nRecommended polling interval: 2-5 seconds.",
+        "operationId": "get_job_status_api_reconciliation_status__job_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Job Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/JobStatusResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation/cancel/{job_id}": {
+      "post": {
+        "tags": ["Reconciliation"],
+        "summary": "Cancel Reconciliation Job",
+        "description": "Request cancellation of a reconciliation job.\n\nBehavior:\n- If job is PENDING (queued) or RUNNING, mark as FAILED with message 'Canceled by user'\n- Set in-memory cancel flag so worker can skip/stop processing safely\n- If job already COMPLETED/FAILED, return current status (idempotent)\n\nPermissions: job owner or ADMIN.",
+        "operationId": "cancel_reconciliation_job_api_reconciliation_cancel__job_id__post",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Job Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/JobStatusResponse" }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation/result/{job_id}": {
+      "get": {
+        "tags": ["Reconciliation"],
+        "summary": "Get Reconciliation Result",
+        "description": "Get reconciliation result summary and discrepancies in JSON format.\n\nReturns:\n- Result summary: total amounts, match counts, processing time\n- Discrepancies list with full details\n- Chart-ready datasets for visualization\n\nOnly available for COMPLETED jobs. Cached for 1 hour.",
+        "operationId": "get_reconciliation_result_api_reconciliation_result__job_id__get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Job Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationResultResponse"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation/result/{job_id}/excel": {
+      "get": {
+        "tags": ["Reconciliation"],
+        "summary": "Download Reconciliation Excel",
+        "description": "Download reconciliation results as formatted Excel file.\n\nThe Excel workbook contains:\n- Sheet 'Resumo': Summary statistics and key metrics\n- Sheet 'E-Fatura': Original parsed data from uploaded file\n- Sheet 'aXel': Internal system invoices for the date range\n- Sheet 'Incoerências': Detailed list of all discrepancies with suggestions\n\nColor-coded by severity: Red (HIGH), Yellow (MEDIUM), Green (LOW)",
+        "operationId": "download_reconciliation_excel_api_reconciliation_result__job_id__excel_get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Job Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation/result/{job_id}/charts": {
+      "get": {
+        "tags": ["Reconciliation"],
+        "summary": "Get Reconciliation Charts",
+        "description": "Get Chart.js-compatible datasets for reconciliation visualization.\n\nReturns datasets for:\n- Pie chart: Reconciliation status (matched, missing in system, missing in efatura)\n- Bar chart: Discrepancies by severity (HIGH, MEDIUM, LOW)\n- Bar chart: Top 20 suppliers with discrepancies\n\nUse directly with Chart.js or similar charting libraries.",
+        "operationId": "get_reconciliation_charts_api_reconciliation_result__job_id__charts_get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "title": "Job Id" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChartDatasetsResponse"
+                }
+              }
+            }
+          },
+          "401": { "description": "Unauthorized" },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation-enums/discrepancy-types": {
+      "get": {
+        "tags": ["reconciliation-enums"],
+        "summary": "Get Discrepancy Types",
+        "description": "Get all reconciliation discrepancy types with descriptions.\n\nQuery Parameters:\n- lang: Language code (en or pt-PT, default: pt-PT)",
+        "operationId": "get_discrepancy_types_api_reconciliation_enums_discrepancy_types_get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(en|pt-PT)$",
+              "default": "pt-PT",
+              "title": "Lang"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DiscrepancyTypeResponse"
+                  },
+                  "title": "Response Get Discrepancy Types Api Reconciliation Enums Discrepancy Types Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/reconciliation-enums/severity-levels": {
+      "get": {
+        "tags": ["reconciliation-enums"],
+        "summary": "Get Severity Levels",
+        "description": "Get all reconciliation severity levels with descriptions.\n\nQuery Parameters:\n- lang: Language code (en or pt-PT, default: pt-PT)",
+        "operationId": "get_severity_levels_api_reconciliation_enums_severity_levels_get",
+        "security": [{ "OAuth2PasswordBearer": [] }],
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(en|pt-PT)$",
+              "default": "pt-PT",
+              "title": "Lang"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SeverityLevelResponse"
+                  },
+                  "title": "Response Get Severity Levels Api Reconciliation Enums Severity Levels Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HTTPValidationError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": { "application/json": { "schema": {} } }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BatchInvoiceCreate": {
+        "properties": {
+          "vendor": { "type": "string", "title": "Vendor" },
+          "vendor_nif": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Nif"
+          },
+          "vendor_name": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Name"
+          },
+          "vendor_cae": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Cae"
+          },
+          "invoice_number": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Invoice Number"
+          },
+          "iva": {
+            "anyOf": [{ "type": "number" }, { "type": "null" }],
+            "title": "Iva"
+          },
+          "description": { "type": "string", "title": "Description" },
+          "date": { "type": "string", "format": "date-time", "title": "Date" },
+          "expense_type_id": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Expense Type Id"
+          },
+          "origin": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Origin"
+          },
+          "destination": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Destination"
+          },
+          "kilometers": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Kilometers"
+          },
+          "meal_type": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Meal Type"
+          },
+          "number_of_persons": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Number Of Persons"
+          },
+          "days": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Days"
+          },
+          "payer": {
+            "$ref": "#/components/schemas/PayerType",
+            "default": "COMPANY"
+          },
+          "items": {
+            "items": { "$ref": "#/components/schemas/BatchInvoiceItem" },
+            "type": "array",
+            "title": "Items"
+          },
+          "save_as_template": {
+            "type": "boolean",
+            "title": "Save As Template",
+            "default": false
+          },
+          "template_name": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Template Name"
+          }
+        },
+        "type": "object",
+        "required": ["vendor", "description", "date", "items"],
+        "title": "BatchInvoiceCreate",
+        "description": "Request to create multiple invoices at once distributed across users"
+      },
+      "BatchInvoiceItem": {
+        "properties": {
+          "user_id": { "type": "string", "title": "User Id" },
+          "amount": { "type": "number", "title": "Amount" }
+        },
+        "type": "object",
+        "required": ["user_id", "amount"],
+        "title": "BatchInvoiceItem",
+        "description": "Individual user allocation in a batch invoice request"
+      },
+      "BatchInvoiceResponse": {
+        "properties": {
+          "success": { "type": "boolean", "title": "Success" },
+          "invoice_ids": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Invoice Ids"
+          },
+          "warnings": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Warnings",
+            "default": []
+          },
+          "template_id": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Template Id"
+          }
+        },
+        "type": "object",
+        "required": ["success", "invoice_ids"],
+        "title": "BatchInvoiceResponse",
+        "description": "Response after creating batch invoices"
+      },
+      "BatchTemplate": {
+        "properties": {
+          "id": { "type": "string", "title": "Id" },
+          "name": { "type": "string", "title": "Name" },
+          "created_by": { "type": "string", "title": "Created By" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "item_count": { "type": "integer", "title": "Item Count" }
+        },
+        "type": "object",
+        "required": ["id", "name", "created_by", "created_at", "item_count"],
+        "title": "BatchTemplate",
+        "description": "Summary of a batch invoice template"
+      },
+      "BatchTemplateDetail": {
+        "properties": {
+          "id": { "type": "string", "title": "Id" },
+          "name": { "type": "string", "title": "Name" },
+          "created_by": { "type": "string", "title": "Created By" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "item_count": { "type": "integer", "title": "Item Count" },
+          "items": {
+            "items": { "$ref": "#/components/schemas/BatchInvoiceItem" },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_by",
+          "created_at",
+          "item_count",
+          "items"
+        ],
+        "title": "BatchTemplateDetail",
+        "description": "Full details of a batch invoice template including items"
+      },
+      "Body_login_for_access_token_api_auth_token_post": {
+        "properties": {
+          "grant_type": {
+            "anyOf": [
+              { "type": "string", "pattern": "password" },
+              { "type": "null" }
+            ],
+            "title": "Grant Type"
+          },
+          "username": { "type": "string", "title": "Username" },
+          "password": { "type": "string", "title": "Password" },
+          "scope": { "type": "string", "title": "Scope", "default": "" },
+          "client_id": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": ["username", "password"],
+        "title": "Body_login_for_access_token_api_auth_token_post"
+      },
+      "Body_process_invoice_document_endpoint_api_files_process_invoice_document_post": {
+        "properties": {
+          "file": { "type": "string", "format": "binary", "title": "File" }
+        },
+        "type": "object",
+        "required": ["file"],
+        "title": "Body_process_invoice_document_endpoint_api_files_process_invoice_document_post"
+      },
+      "Body_upload_efatura_file_api_reconciliation_upload_efatura_post": {
+        "properties": {
+          "file": { "type": "string", "format": "binary", "title": "File" }
+        },
+        "type": "object",
+        "required": ["file"],
+        "title": "Body_upload_efatura_file_api_reconciliation_upload_efatura_post"
+      },
+      "ChartData": {
+        "properties": {
+          "labels": { "items": {}, "type": "array", "title": "Labels" },
+          "datasets": {
+            "items": { "$ref": "#/components/schemas/ChartDataset" },
+            "type": "array",
+            "title": "Datasets"
+          }
+        },
+        "type": "object",
+        "required": ["labels", "datasets"],
+        "title": "ChartData",
+        "description": "Chart data with labels and datasets (compatible with Chart.js)"
+      },
+      "ChartDataset": {
+        "properties": {
+          "label": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Label"
+          },
+          "data": { "items": {}, "type": "array", "title": "Data" },
+          "backgroundColor": {
+            "anyOf": [{ "items": {}, "type": "array" }, { "type": "null" }],
+            "title": "Backgroundcolor"
+          },
+          "borderColor": {
+            "anyOf": [{ "items": {}, "type": "array" }, { "type": "null" }],
+            "title": "Bordercolor"
+          },
+          "borderWidth": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Borderwidth"
+          }
+        },
+        "type": "object",
+        "required": ["data"],
+        "title": "ChartDataset",
+        "description": "Single chart dataset (compatible with Chart.js)"
+      },
+      "ChartDatasetsResponse": {
+        "properties": {
+          "pie_reconciliation": { "$ref": "#/components/schemas/ChartData" },
+          "bar_severity": { "$ref": "#/components/schemas/ChartData" },
+          "bar_suppliers": { "$ref": "#/components/schemas/ChartData" }
+        },
+        "type": "object",
+        "required": ["pie_reconciliation", "bar_severity", "bar_suppliers"],
+        "title": "ChartDatasetsResponse",
+        "description": "Chart datasets for visualization"
+      },
+      "DashboardStats": {
+        "properties": {
+          "totalInvoices": { "type": "integer", "title": "Totalinvoices" },
+          "pendingApprovals": {
+            "type": "integer",
+            "title": "Pendingapprovals"
+          },
+          "payedThisMonth": { "type": "integer", "title": "Payedthismonth" },
+          "rejectedThisMonth": {
+            "type": "integer",
+            "title": "Rejectedthismonth"
+          },
+          "submittedThisMonth": {
+            "type": "integer",
+            "title": "Submittedthismonth"
+          },
+          "expenseTypeStats": {
+            "items": { "$ref": "#/components/schemas/ExpenseTypeStats" },
+            "type": "array",
+            "title": "Expensetypestats",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "totalInvoices",
+          "pendingApprovals",
+          "payedThisMonth",
+          "rejectedThisMonth",
+          "submittedThisMonth"
+        ],
+        "title": "DashboardStats"
+      },
+      "DiscrepancyTypeResponse": {
+        "properties": {
+          "value": { "type": "string", "title": "Value" },
+          "label": { "type": "string", "title": "Label" },
+          "description": { "type": "string", "title": "Description" }
+        },
+        "type": "object",
+        "required": ["value", "label", "description"],
+        "title": "DiscrepancyTypeResponse",
+        "description": "Response model for discrepancy types"
+      },
+      "DocumentType": {
+        "type": "string",
+        "enum": ["PDF", "IMAGE"],
+        "title": "DocumentType"
+      },
+      "ExpenseType": {
+        "properties": {
+          "name": { "type": "string", "title": "Name" },
+          "description": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Description"
+          },
+          "id": { "type": "integer", "title": "Id" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": ["name", "id", "created_at", "updated_at"],
+        "title": "ExpenseType"
+      },
+      "ExpenseTypeStats": {
+        "properties": {
+          "id": { "type": "integer", "title": "Id" },
+          "name": { "type": "string", "title": "Name" },
+          "amount": { "type": "number", "title": "Amount" },
+          "count": { "type": "integer", "title": "Count" }
+        },
+        "type": "object",
+        "required": ["id", "name", "amount", "count"],
+        "title": "ExpenseTypeStats"
+      },
+      "File": {
+        "properties": {
+          "file_type": { "$ref": "#/components/schemas/DocumentType" },
+          "original_filename": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Original Filename"
+          },
+          "id": { "type": "string", "title": "Id" },
+          "user_id": { "type": "string", "title": "User Id" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": ["file_type", "id", "user_id", "created_at", "updated_at"],
+        "title": "File"
+      },
+      "FileInspection": {
+        "properties": {
+          "upload_id": { "type": "string", "title": "Upload Id" },
+          "filename": { "type": "string", "title": "Filename" },
+          "row_count": { "type": "integer", "title": "Row Count" },
+          "column_count": { "type": "integer", "title": "Column Count" },
+          "headers": {
+            "items": { "$ref": "#/components/schemas/FileInspectionHeader" },
+            "type": "array",
+            "title": "Headers"
+          },
+          "sample_rows": {
+            "items": { "additionalProperties": true, "type": "object" },
+            "type": "array",
+            "title": "Sample Rows"
+          },
+          "warnings": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Warnings",
+            "default": []
+          },
+          "earliest_date": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Earliest Date"
+          },
+          "latest_date": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Latest Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "upload_id",
+          "filename",
+          "row_count",
+          "column_count",
+          "headers",
+          "sample_rows"
+        ],
+        "title": "FileInspection",
+        "description": "Detailed inspection of uploaded Excel file"
+      },
+      "FileInspectionHeader": {
+        "properties": {
+          "index": { "type": "integer", "title": "Index" },
+          "name": { "type": "string", "title": "Name" },
+          "sample_values": {
+            "items": { "type": "string" },
+            "type": "array",
+            "title": "Sample Values"
+          },
+          "data_type": { "type": "string", "title": "Data Type" }
+        },
+        "type": "object",
+        "required": ["index", "name", "sample_values", "data_type"],
+        "title": "FileInspectionHeader",
+        "description": "Information about a detected column header"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": { "$ref": "#/components/schemas/ValidationError" },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Invoice": {
+        "properties": {
+          "vendor": { "type": "string", "title": "Vendor" },
+          "vendor_nif": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Nif"
+          },
+          "vendor_name": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Name"
+          },
+          "vendor_cae": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Cae"
+          },
+          "invoice_number": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Invoice Number"
+          },
+          "amount": { "type": "number", "title": "Amount" },
+          "iva": {
+            "anyOf": [{ "type": "number" }, { "type": "null" }],
+            "title": "Iva"
+          },
+          "description": { "type": "string", "title": "Description" },
+          "date": { "type": "string", "format": "date-time", "title": "Date" },
+          "type": { "$ref": "#/components/schemas/InvoiceType" },
+          "expense_type_id": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Expense Type Id"
+          },
+          "origin": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Origin"
+          },
+          "destination": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Destination"
+          },
+          "kilometers": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Kilometers"
+          },
+          "meal_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/MealType" },
+              { "type": "null" }
+            ]
+          },
+          "number_of_persons": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Number Of Persons"
+          },
+          "days": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Days"
+          },
+          "payer": {
+            "$ref": "#/components/schemas/PayerType",
+            "default": "COMPANY"
+          },
+          "id": { "type": "string", "title": "Id" },
+          "user_id": { "type": "string", "title": "User Id" },
+          "userName": { "type": "string", "title": "Username" },
+          "submission_date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Submission Date"
+          },
+          "status": { "$ref": "#/components/schemas/InvoiceStatus" },
+          "rejection_reason": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Rejection Reason"
+          },
+          "approval_date": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Approval Date"
+          },
+          "payed_date": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Payed Date"
+          },
+          "rejection_date": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Rejection Date"
+          },
+          "document_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/DocumentType" },
+              { "type": "null" }
+            ]
+          },
+          "file_id": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "File Id"
+          },
+          "file": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/File" },
+              { "type": "null" }
+            ]
+          },
+          "expense_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/ExpenseType" },
+              { "type": "null" }
+            ]
+          },
+          "can_edit": {
+            "type": "boolean",
+            "title": "Can Edit",
+            "default": false
+          },
+          "can_delete": {
+            "type": "boolean",
+            "title": "Can Delete",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "vendor",
+          "amount",
+          "description",
+          "date",
+          "type",
+          "id",
+          "user_id",
+          "userName",
+          "submission_date",
+          "status"
+        ],
+        "title": "Invoice"
+      },
+      "InvoiceApprove": {
+        "properties": {
+          "comment": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "title": "InvoiceApprove"
+      },
+      "InvoiceCreate": {
+        "properties": {
+          "vendor": { "type": "string", "title": "Vendor" },
+          "vendor_nif": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Nif"
+          },
+          "vendor_name": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Name"
+          },
+          "vendor_cae": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Cae"
+          },
+          "invoice_number": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Invoice Number"
+          },
+          "amount": { "type": "number", "title": "Amount" },
+          "iva": {
+            "anyOf": [{ "type": "number" }, { "type": "null" }],
+            "title": "Iva"
+          },
+          "description": { "type": "string", "title": "Description" },
+          "date": { "type": "string", "format": "date-time", "title": "Date" },
+          "type": { "$ref": "#/components/schemas/InvoiceType" },
+          "expense_type_id": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Expense Type Id"
+          },
+          "origin": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Origin"
+          },
+          "destination": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Destination"
+          },
+          "kilometers": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Kilometers"
+          },
+          "meal_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/MealType" },
+              { "type": "null" }
+            ]
+          },
+          "number_of_persons": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Number Of Persons"
+          },
+          "days": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Days"
+          },
+          "payer": {
+            "$ref": "#/components/schemas/PayerType",
+            "default": "COMPANY"
+          },
+          "document_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/DocumentType" },
+              { "type": "null" }
+            ]
+          },
+          "file_id": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "File Id"
+          }
+        },
+        "type": "object",
+        "required": ["vendor", "amount", "description", "date", "type"],
+        "title": "InvoiceCreate"
+      },
+      "InvoiceReject": {
+        "properties": { "reason": { "type": "string", "title": "Reason" } },
+        "type": "object",
+        "required": ["reason"],
+        "title": "InvoiceReject"
+      },
+      "InvoiceStatus": {
+        "type": "string",
+        "enum": [
+          "DRAFT",
+          "PENDING",
+          "APPROVED",
+          "REJECTED",
+          "PAYED",
+          "SUBMITTED"
+        ],
+        "title": "InvoiceStatus"
+      },
+      "InvoiceType": {
+        "type": "string",
+        "enum": ["COMPANY", "BENEFITS", "BONUS"],
+        "title": "InvoiceType"
+      },
+      "InvoiceUpdate": {
+        "properties": {
+          "vendor": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor"
+          },
+          "vendor_nif": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Nif"
+          },
+          "vendor_name": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Name"
+          },
+          "vendor_cae": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Vendor Cae"
+          },
+          "invoice_number": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Invoice Number"
+          },
+          "amount": {
+            "anyOf": [{ "type": "number" }, { "type": "null" }],
+            "title": "Amount"
+          },
+          "iva": {
+            "anyOf": [{ "type": "number" }, { "type": "null" }],
+            "title": "Iva"
+          },
+          "description": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Description"
+          },
+          "date": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Date"
+          },
+          "type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/InvoiceType" },
+              { "type": "null" }
+            ]
+          },
+          "expense_type_id": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Expense Type Id"
+          },
+          "document_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/DocumentType" },
+              { "type": "null" }
+            ]
+          },
+          "file_id": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "File Id"
+          },
+          "origin": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Origin"
+          },
+          "destination": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Destination"
+          },
+          "kilometers": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Kilometers"
+          },
+          "meal_type": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/MealType" },
+              { "type": "null" }
+            ]
+          },
+          "number_of_persons": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Number Of Persons"
+          },
+          "days": {
+            "anyOf": [{ "type": "integer" }, { "type": "null" }],
+            "title": "Days"
+          },
+          "payer": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/PayerType" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "InvoiceUpdate"
+      },
+      "JobCreateRequest": {
+        "properties": {
+          "upload_id": { "type": "string", "title": "Upload Id" },
+          "date_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date Start"
+          },
+          "date_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date End"
+          }
+        },
+        "type": "object",
+        "required": ["upload_id", "date_start", "date_end"],
+        "title": "JobCreateRequest",
+        "description": "Request to start a reconciliation job"
+      },
+      "JobStatusResponse": {
+        "properties": {
+          "job_id": { "type": "string", "title": "Job Id" },
+          "status": { "type": "string", "title": "Status" },
+          "progress": { "type": "integer", "title": "Progress" },
+          "started_at": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              { "type": "string", "format": "date-time" },
+              { "type": "null" }
+            ],
+            "title": "Finished At"
+          },
+          "error_message": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Error Message"
+          },
+          "date_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date Start"
+          },
+          "date_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date End"
+          }
+        },
+        "type": "object",
+        "required": ["job_id", "status", "progress", "date_start", "date_end"],
+        "title": "JobStatusResponse",
+        "description": "Current status of a reconciliation job"
+      },
+      "MealType": {
+        "type": "string",
+        "enum": ["Pequeno almoço", "Almoço", "Lanche", "Jantar", "Outras"],
+        "title": "MealType"
+      },
+      "PayerType": {
+        "type": "string",
+        "enum": ["COMPANY", "EMPLOYEE", "SUPPLIER"],
+        "title": "PayerType"
+      },
+      "ReconciliationResultResponse": {
+        "properties": {
+          "job_id": { "type": "string", "title": "Job Id" },
+          "status": { "type": "string", "title": "Status" },
+          "date_start": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Date Start"
+          },
+          "date_end": {
+            "anyOf": [{ "type": "string" }, { "type": "null" }],
+            "title": "Date End"
+          },
+          "processing_time_seconds": {
+            "type": "number",
+            "title": "Processing Time Seconds",
+            "default": 0.0
+          },
+          "total_efatura": {
+            "type": "integer",
+            "title": "Total Efatura",
+            "default": 0
+          },
+          "total_efatura_amount": {
+            "type": "number",
+            "title": "Total Efatura Amount",
+            "default": 0.0
+          },
+          "total_system": {
+            "type": "integer",
+            "title": "Total System",
+            "default": 0
+          },
+          "total_system_amount": {
+            "type": "number",
+            "title": "Total System Amount",
+            "default": 0.0
+          },
+          "total_difference": {
+            "type": "integer",
+            "title": "Total Difference",
+            "default": 0
+          },
+          "total_difference_amount": {
+            "type": "number",
+            "title": "Total Difference Amount",
+            "default": 0.0
+          },
+          "matched_count": {
+            "type": "integer",
+            "title": "Matched Count",
+            "default": 0
+          },
+          "missing_in_system_count": {
+            "type": "integer",
+            "title": "Missing In System Count",
+            "default": 0
+          },
+          "missing_in_efatura_count": {
+            "type": "integer",
+            "title": "Missing In Efatura Count",
+            "default": 0
+          },
+          "duplicate_count": {
+            "type": "integer",
+            "title": "Duplicate Count",
+            "default": 0
+          },
+          "discrepancies_high": {
+            "type": "integer",
+            "title": "Discrepancies High",
+            "default": 0
+          },
+          "discrepancies_medium": {
+            "type": "integer",
+            "title": "Discrepancies Medium",
+            "default": 0
+          },
+          "discrepancies_low": {
+            "type": "integer",
+            "title": "Discrepancies Low",
+            "default": 0
+          },
+          "discrepancies_by_type": {
+            "additionalProperties": { "type": "integer" },
+            "type": "object",
+            "title": "Discrepancies By Type",
+            "default": {}
+          },
+          "discrepancies": {
+            "items": { "additionalProperties": true, "type": "object" },
+            "type": "array",
+            "title": "Discrepancies",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": ["job_id", "status"],
+        "title": "ReconciliationResultResponse",
+        "description": "Complete reconciliation result with summary and discrepancies"
+      },
+      "SeverityLevelResponse": {
+        "properties": {
+          "value": { "type": "string", "title": "Value" },
+          "label": { "type": "string", "title": "Label" },
+          "description": { "type": "string", "title": "Description" }
+        },
+        "type": "object",
+        "required": ["value", "label", "description"],
+        "title": "SeverityLevelResponse",
+        "description": "Response model for severity levels"
+      },
+      "SpendingLimitCreate": {
+        "properties": {
+          "annual_limit": { "type": "number", "title": "Annual Limit" }
+        },
+        "type": "object",
+        "required": ["annual_limit"],
+        "title": "SpendingLimitCreate"
+      },
+      "SpendingLimitSummary": {
+        "properties": {
+          "annual_limit": { "type": "number", "title": "Annual Limit" },
+          "accrued_limit": { "type": "number", "title": "Accrued Limit" },
+          "used": { "type": "number", "title": "Used" },
+          "pending": { "type": "number", "title": "Pending", "default": 0 },
+          "available": { "type": "number", "title": "Available", "default": 0 }
+        },
+        "type": "object",
+        "required": ["annual_limit", "accrued_limit", "used"],
+        "title": "SpendingLimitSummary",
+        "description": "Summary of spending limits for a user or all users (admin view).\n\nAttributes:\n    annual_limit: Annual spending limit (fixed)\n    accrued_limit: Accrued budget for year-to-date = annual_limit / 12 * current_month_of_year\n    used: Total amount used (PAYED or APPROVED status for specified year)\n    pending: Total pending approval (PENDING status for specified year, 0 for BONUS)\n    available: Remaining accrued balance = accrued_limit - used - pending"
+      },
+      "StandardResponse": {
+        "properties": {
+          "success": { "type": "boolean", "title": "Success" },
+          "message": { "type": "string", "title": "Message" },
+          "data": { "anyOf": [{}, { "type": "null" }], "title": "Data" }
+        },
+        "type": "object",
+        "required": ["success", "message"],
+        "title": "StandardResponse"
+      },
+      "Token": {
+        "properties": {
+          "access_token": { "type": "string", "title": "Access Token" },
+          "token_type": { "type": "string", "title": "Token Type" }
+        },
+        "type": "object",
+        "required": ["access_token", "token_type"],
+        "title": "Token"
+      },
+      "UploadResponse": {
+        "properties": {
+          "upload_id": { "type": "string", "title": "Upload Id" },
+          "filename": { "type": "string", "title": "Filename" },
+          "file_size": { "type": "integer", "title": "File Size" },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": "File uploaded successfully. Use /inspect endpoint to view structure."
+          }
+        },
+        "type": "object",
+        "required": ["upload_id", "filename", "file_size", "expires_at"],
+        "title": "UploadResponse",
+        "description": "Response after successful file upload"
+      },
+      "User": {
+        "properties": {
+          "name": { "type": "string", "title": "Name" },
+          "email": { "type": "string", "format": "email", "title": "Email" },
+          "department": { "type": "string", "title": "Department" },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "default": "NORMAL"
+          },
+          "can_use_bonus": {
+            "type": "boolean",
+            "title": "Can Use Bonus",
+            "default": false
+          },
+          "id": { "type": "string", "title": "Id" },
+          "limits": { "$ref": "#/components/schemas/UserLimits" }
+        },
+        "type": "object",
+        "required": ["name", "email", "department", "id", "limits"],
+        "title": "User"
+      },
+      "UserLimits": {
+        "properties": {
+          "companyAccount": {
+            "$ref": "#/components/schemas/SpendingLimitSummary"
+          },
+          "employeeBenefits": {
+            "$ref": "#/components/schemas/SpendingLimitSummary"
+          },
+          "bonusAccount": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/SpendingLimitSummary" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "type": "object",
+        "required": ["companyAccount", "employeeBenefits"],
+        "title": "UserLimits"
+      },
+      "UserLimitsUpdate": {
+        "properties": {
+          "companyAccount": {
+            "$ref": "#/components/schemas/SpendingLimitCreate"
+          },
+          "employeeBenefits": {
+            "$ref": "#/components/schemas/SpendingLimitCreate"
+          },
+          "bonusAccount": {
+            "anyOf": [
+              { "$ref": "#/components/schemas/SpendingLimitCreate" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "type": "object",
+        "required": ["companyAccount", "employeeBenefits"],
+        "title": "UserLimitsUpdate"
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": ["NORMAL", "APPROVER", "ADMIN"],
+        "title": "UserRole"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": { "anyOf": [{ "type": "string" }, { "type": "integer" }] },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": { "type": "string", "title": "Message" },
+          "type": { "type": "string", "title": "Error Type" }
+        },
+        "type": "object",
+        "required": ["loc", "msg", "type"],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": { "password": { "scopes": {}, "tokenUrl": "api/auth/token" } }
+      }
+    }
+  }
+}
