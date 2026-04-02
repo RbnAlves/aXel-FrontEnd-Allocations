@@ -157,12 +157,18 @@ const formatIso = (d: Date): string => {
   return `${y}-${m}-${day}`;
 };
 
-const getISOWeekNumber = (d: Date): number => {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNum = date.getUTCDay() || 7;
-  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-  return Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+const getCalendarWeekNumber = (d: Date): number => {
+  const yearStart = new Date(d.getFullYear(), 0, 1);
+  yearStart.setHours(0, 0, 0, 0);
+
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+
+  const dayOfYear = Math.floor((date.getTime() - yearStart.getTime()) / 86400000) + 1;
+  const week = Math.ceil(dayOfYear / 7);
+
+  // Product rule: S1 is first week of January and S52 is last week of December.
+  return Math.min(Math.max(week, 1), 52);
 };
 
 // ─── Service ─────────────────────────────────────────────
@@ -354,14 +360,14 @@ export const allocationService = {
 
     // Build weeks array
     const weeks: TimelineWeek[] = [];
-    const monday = getMonday(startDate);
+    const timelineStart = new Date(startDate);
     for (let i = 0; i < numWeeks; i++) {
-      const weekStart = new Date(monday);
-      weekStart.setDate(monday.getDate() + i * 7);
+      const weekStart = new Date(timelineStart);
+      weekStart.setDate(timelineStart.getDate() + i * 7);
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekStart.getDate() + 4); // Friday
 
-      const weekNum = getISOWeekNumber(weekStart);
+      const weekNum = getCalendarWeekNumber(weekStart);
       const monthName = weekStart.toLocaleDateString("pt-PT", { month: "short" });
 
       weeks.push({

@@ -17,6 +17,7 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   BarChart3,
   GanttChart,
 } from "lucide-react";
@@ -46,11 +47,12 @@ interface AllocationsDashboardProps {
 export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
   currentUser,
 }) => {
+  type TimelinePeriod = "week" | "month" | "trimester";
   const { isModuleVisible } = useModuleVisibility(currentUser);
 
   // ─── State ───────────────────────────────────────────
   const [activeTab, setActiveTab] = React.useState<
-    "timeline" | "allocations" | "engagements" | "calendar"
+    "timeline" | "allocations" | "engagements" | "calendar" | "conflicts"
   >("timeline");
   const [viewMode, setViewMode] = React.useState<"list" | "grid">("list");
   const [selectedWorkerId, setSelectedWorkerId] = React.useState("all");
@@ -75,21 +77,31 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
   // Timeline navigation
   const [timelineStart, setTimelineStart] = React.useState(() => {
-    // Start at first Monday of the year
+    // Start exactly at January 1st of the current year
     const now = new Date();
-    const jan1 = new Date(now.getFullYear(), 0, 1);
-    const day = jan1.getDay();
-    const diff = day === 0 ? 1 : day === 1 ? 0 : 8 - day;
-    jan1.setDate(jan1.getDate() + diff);
-    return jan1;
+    return new Date(now.getFullYear(), 0, 1);
   });
-  const [timelineWeeks, setTimelineWeeks] = React.useState(13); // ~1 quarter
-  const [timelineGroupFilter, setTimelineGroupFilter] = React.useState<ResourceGroup | "all">("all");
+  const [timelinePeriod, setTimelinePeriod] = React.useState<TimelinePeriod>("month");
+  const [timelineWeeks, setTimelineWeeks] = React.useState(4); // 1 month
+  const [quickAddWorkerId, setQuickAddWorkerId] = React.useState<string | null>(null);
+  const [selectedTimelineWeeks, setSelectedTimelineWeeks] = React.useState<Set<string>>(new Set());
+  const [selectedGroups, setSelectedGroups] = React.useState<Set<ResourceGroup>>(new Set());
+  const [selectedWorkerIds, setSelectedWorkerIds] = React.useState<Set<string>>(new Set());
+  const [selectedEngagementIds, setSelectedEngagementIds] = React.useState<Set<string>>(new Set());
+  const [filterDropdownOpen, setFilterDropdownOpen] = React.useState<"group" | "worker" | "engagement" | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = React.useState<Record<ResourceGroup, boolean>>({
+    leadership: false,
+    management: false,
+    senior: false,
+    consultant: false,
+    external: false,
+  });
 
   // Calendar navigation
   const [calendarDate, setCalendarDate] = React.useState(() => new Date());
 
-  // Create form state
+  // Create/Edit form state
+  const [editingAllocationId, setEditingAllocationId] = React.useState<string | null>(null);
   const [newAllocation, setNewAllocation] = React.useState<Partial<AllocationCreate>>({
     type: "projeto",
     status: "planned",
@@ -201,14 +213,51 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
     );
   }, [workers, allocations, engagements, timelineStart, timelineWeeks]);
 
-  // Filter timeline by resource group
+  const hasAnyFilter = selectedGroups.size > 0 || selectedWorkerIds.size > 0 || selectedEngagementIds.size > 0;
+
+  const timelineFilteredWorkerIds = React.useMemo(() => {
+    // No filters active → show all
+    if (!hasAnyFilter) {
+      return new Set(workers.map((w) => w.id));
+    }
+
+    const result = new Set<string>();
+
+    // Group filter: add all workers in selected groups
+    if (selectedGroups.size > 0) {
+      workers.forEach((w) => {
+        for (const group of selectedGroups) {
+          if (RESOURCE_GROUP_CONFIG[group].categories.includes(w.category)) {
+            result.add(w.id);
+            break;
+          }
+        }
+      });
+    }
+
+    // Worker filter: add explicitly selected workers
+    selectedWorkerIds.forEach((id) => result.add(id));
+
+    // Engagement filter: add workers with allocations on selected engagements
+    if (selectedEngagementIds.size > 0) {
+      allocations.forEach((a) => {
+        if (
+          a.engagementId &&
+          selectedEngagementIds.has(a.engagementId) &&
+          a.status !== "completed"
+        ) {
+          result.add(a.workerId);
+        }
+      });
+    }
+
+    return result;
+  }, [hasAnyFilter, selectedGroups, selectedWorkerIds, selectedEngagementIds, workers, allocations]);
+
+  // Filter timeline by aggregated filter selection
   const timelineData = React.useMemo((): WorkerTimeline[] => {
-    if (timelineGroupFilter === "all") return timelineDataAll;
-    const allowedCategories = RESOURCE_GROUP_CONFIG[timelineGroupFilter].categories;
-    return timelineDataAll.filter((wt) =>
-      allowedCategories.includes(wt.worker.category)
-    );
-  }, [timelineDataAll, timelineGroupFilter]);
+    return timelineDataAll.filter((wt) => timelineFilteredWorkerIds.has(wt.worker.id));
+  }, [timelineDataAll, timelineFilteredWorkerIds]);
 
   // Group counts for filter badges
   const groupCounts = React.useMemo(() => {
@@ -221,18 +270,18 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
     return counts;
   }, [timelineDataAll]);
 
-  // Stats — derived from filtered workers/allocations so they react to the group filter
-  const stats = React.useMemo((): AllocationStats => {
-    // Determine which worker IDs are in scope
-    const filteredWorkerIds = new Set(
-      timelineGroupFilter === "all"
-        ? workers.map((w) => w.id)
-        : workers
-            .filter((w) => RESOURCE_GROUP_CONFIG[timelineGroupFilter].categories.includes(w.category))
-            .map((w) => w.id)
-    );
+  const toggleGroupCollapse = React.useCallback((group: ResourceGroup) => {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [group]: !prev[group],
+    }));
+  }, []);
 
-    const scopedAllocations = allocations.filter((a) => filteredWorkerIds.has(a.workerId));
+  // Stats — derived from filtered workers/allocations so they react to the selected filter
+  const stats = React.useMemo((): AllocationStats => {
+    const scopedAllocations = allocations.filter((a) =>
+      timelineFilteredWorkerIds.has(a.workerId)
+    );
     const activeLike = scopedAllocations.filter((a) => a.status !== "completed");
     const active = scopedAllocations.filter((a) => a.status === "active");
 
@@ -263,7 +312,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
     ).length;
 
     // Average chargeability of filtered workers
-    const scopedWorkers = workers.filter((w) => filteredWorkerIds.has(w.id));
+    const scopedWorkers = workers.filter((w) => timelineFilteredWorkerIds.has(w.id));
     const chargeabilities = scopedWorkers.map((w) => {
       const billable = scopedAllocations.filter(
         (a) => a.workerId === w.id && a.type === "projeto" && a.status !== "completed"
@@ -283,7 +332,141 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
       upcomingEnd,
       avgChargeability,
     };
-  }, [workers, allocations, timelineGroupFilter]);
+  }, [allocations, workers, timelineFilteredWorkerIds]);
+
+  const activeFilterTags = React.useMemo(() => {
+    const tags: string[] = [];
+    selectedGroups.forEach((g) => tags.push(RESOURCE_GROUP_CONFIG[g].label));
+    selectedWorkerIds.forEach((id) => {
+      const w = workers.find((w) => w.id === id);
+      if (w) tags.push(w.name);
+    });
+    selectedEngagementIds.forEach((id) => {
+      const e = engagements.find((e) => e.id === id);
+      if (e) tags.push(e.name);
+    });
+    return tags;
+  }, [selectedGroups, selectedWorkerIds, selectedEngagementIds, workers, engagements]);
+
+  const clearAllFilters = React.useCallback(() => {
+    setSelectedGroups(new Set());
+    setSelectedWorkerIds(new Set());
+    setSelectedEngagementIds(new Set());
+    setFilterDropdownOpen(null);
+  }, []);
+
+  const handleTimelinePeriodChange = React.useCallback(
+    (period: TimelinePeriod) => {
+      const d = new Date(timelineStart);
+      setTimelinePeriod(period);
+
+      if (period === "week") {
+        setTimelineWeeks(1);
+        return;
+      }
+
+      if (period === "month") {
+        d.setDate(1);
+        setTimelineStart(d);
+        setTimelineWeeks(4);
+        return;
+      }
+
+      d.setDate(1);
+      d.setMonth(Math.floor(d.getMonth() / 3) * 3);
+      setTimelineStart(d);
+      setTimelineWeeks(13);
+    },
+    [timelineStart]
+  );
+
+  const shiftTimeline = React.useCallback(
+    (direction: -1 | 1) => {
+      const d = new Date(timelineStart);
+
+      if (timelinePeriod === "week") {
+        d.setDate(d.getDate() + direction * 7);
+        setTimelineStart(d);
+        return;
+      }
+
+      if (timelinePeriod === "month") {
+        d.setDate(1);
+        d.setMonth(d.getMonth() + direction);
+        setTimelineStart(d);
+        return;
+      }
+
+      d.setDate(1);
+      d.setMonth(Math.floor(d.getMonth() / 3) * 3 + direction * 3);
+      setTimelineStart(d);
+    },
+    [timelineStart, timelinePeriod]
+  );
+
+  const toggleTimelineWeekSelection = React.useCallback(
+    (workerId: string, weekStart: string, weekEnd: string) => {
+      const key = `${weekStart}|${weekEnd}`;
+      setSelectedTimelineWeeks((prev) => {
+        // Selecting a different worker resets the current selection set.
+        if (quickAddWorkerId && quickAddWorkerId !== workerId) {
+          setQuickAddWorkerId(workerId);
+          return new Set([key]);
+        }
+
+        const next = new Set(prev);
+        if (next.has(key)) {
+          next.delete(key);
+          if (next.size === 0) {
+            setQuickAddWorkerId(null);
+          }
+        } else {
+          next.add(key);
+          setQuickAddWorkerId(workerId);
+        }
+        return next;
+      });
+    },
+    [quickAddWorkerId]
+  );
+
+  const selectedTimelineInterval = React.useMemo(() => {
+    if (!quickAddWorkerId || selectedTimelineWeeks.size === 0) {
+      return null;
+    }
+
+    const parsed = [...selectedTimelineWeeks]
+      .map((value) => {
+        const [startDate, endDate] = value.split("|");
+        return { startDate, endDate };
+      })
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+
+    return {
+      workerId: quickAddWorkerId,
+      startDate: parsed[0].startDate,
+      endDate: parsed[parsed.length - 1].endDate,
+      weeksCount: parsed.length,
+    };
+  }, [quickAddWorkerId, selectedTimelineWeeks]);
+
+  const clearTimelineSelection = React.useCallback(() => {
+    setQuickAddWorkerId(null);
+    setSelectedTimelineWeeks(new Set());
+  }, []);
+
+  const handleQuickAddFromSelection = React.useCallback(() => {
+    if (!selectedTimelineInterval) return;
+
+    setNewAllocation((prev) => ({
+      ...prev,
+      workerId: selectedTimelineInterval.workerId,
+      startDate: selectedTimelineInterval.startDate,
+      endDate: selectedTimelineInterval.endDate,
+    }));
+
+    setShowCreateForm(true);
+  }, [selectedTimelineInterval]);
 
   // Engagement summaries
   const engagementSummaries = React.useMemo((): EngagementSummary[] => {
@@ -352,11 +535,79 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
       showToast("Alocação criada com sucesso", "success");
       setShowCreateForm(false);
       setNewAllocation({ type: "projeto", status: "planned", percent: 1.0 });
+      clearTimelineSelection();
       await loadData();
     } catch {
       showToast("Erro ao criar alocação", "error");
     }
-  }, [newAllocation, workerMap, showToast, loadData]);
+  }, [newAllocation, workerMap, showToast, loadData, clearTimelineSelection]);
+
+  const handleEditAllocation = React.useCallback(async () => {
+    if (!editingAllocationId) return;
+
+    if (
+      !newAllocation.startDate ||
+      !newAllocation.endDate ||
+      !newAllocation.percent ||
+      !newAllocation.status
+    ) {
+      showToast("Preencha todos os campos obrigatórios", "error");
+      return;
+    }
+
+    try {
+      // Check conflicts excluding the allocation being edited
+      const conflicts = await allocationService.checkConflicts(
+        newAllocation.workerId!,
+        newAllocation.startDate,
+        newAllocation.endDate,
+        newAllocation.percent,
+        editingAllocationId
+      );
+
+      if (conflicts.hasConflicts) {
+        const worker = workerMap.get(newAllocation.workerId!);
+        showToast(
+          `Conflito: ${worker?.name} fica a ${Math.round(conflicts.maxTotalPercent * 100)}% FTE nesse período`,
+          "error"
+        );
+        return;
+      }
+
+      await allocationService.updateAllocation(editingAllocationId, {
+        startDate: newAllocation.startDate,
+        endDate: newAllocation.endDate,
+        percent: newAllocation.percent,
+        status: newAllocation.status,
+        notes: newAllocation.notes,
+      });
+      showToast("Alocação atualizada com sucesso", "success");
+      setShowCreateForm(false);
+      setEditingAllocationId(null);
+      setNewAllocation({ type: "projeto", status: "planned", percent: 1.0 });
+      await loadData();
+    } catch {
+      showToast("Erro ao atualizar alocação", "error");
+    }
+  }, [editingAllocationId, newAllocation, workerMap, showToast, loadData]);
+
+  const openEditModal = React.useCallback(
+    (allocation: Allocation) => {
+      setEditingAllocationId(allocation.id);
+      setNewAllocation({
+        workerId: allocation.workerId,
+        type: allocation.type,
+        engagementId: allocation.engagementId,
+        startDate: allocation.startDate,
+        endDate: allocation.endDate,
+        percent: allocation.percent,
+        status: allocation.status,
+        notes: allocation.notes,
+      });
+      setShowCreateForm(true);
+    },
+    []
+  );
 
   const handleDeleteAllocation = React.useCallback(
     async (id: string) => {
@@ -478,7 +729,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
     return (
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-yellow-500"></div>
           <span className="ml-3 text-gray-500">A carregar alocações...</span>
         </div>
       </div>
@@ -522,94 +773,34 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
         <button
           onClick={() => setShowCreateForm(true)}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-colors"
+          className="bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-medium px-4 py-2 rounded-lg shadow-sm flex items-center gap-2 transition-colors"
         >
           <Plus className="w-4 h-4" />
           Nova Alocação
         </button>
       </div>
 
-      {/* Stats Grid — reactive to resource group filter */}
-      {timelineGroupFilter !== "all" && (
-        <div className="mb-3 flex items-center gap-2 text-xs text-gray-500">
-          <span
-            className="w-2 h-2 rounded-full"
-            style={{ backgroundColor: RESOURCE_GROUP_CONFIG[timelineGroupFilter].color }}
-          />
-          A mostrar métricas para: <span className="font-semibold text-gray-700">{RESOURCE_GROUP_CONFIG[timelineGroupFilter].label}</span>
+      {/* Stats Grid — reactive to selected timeline filter */}
+      {hasAnyFilter && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+          <span className="text-gray-600 font-medium">Filtros ativos:</span>
+          {activeFilterTags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs font-medium"
+            >
+              {tag}
+            </span>
+          ))}
           <button
-            onClick={() => setTimelineGroupFilter("all")}
-            className="ml-1 text-blue-600 hover:text-blue-800 font-medium"
+            onClick={clearAllFilters}
+            className="ml-1 text-yellow-600 hover:text-yellow-800 font-medium"
           >
-            Limpar filtro
+            Limpar filtros
           </button>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total Alocações
-                </p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {stats.totalAllocations}
-                </p>
-              </div>
-              <div className="p-3 rounded-full bg-blue-500">
-                <Users className="w-5 h-5 text-white" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Ativas
-                </p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {stats.activeAllocations}
-                </p>
-              </div>
-              <div className="p-3 rounded-full bg-green-500">
-                <TrendingUp className="w-5 h-5 text-white" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Conflitos
-                </p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {stats.conflicts}
-                </p>
-              </div>
-              <div className="p-3 rounded-full bg-yellow-500">
-                <AlertTriangle className="w-5 h-5 text-white" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Finais em 14d
-                </p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {stats.upcomingEnd}
-                </p>
-              </div>
-              <div className="p-3 rounded-full bg-red-500">
-                <Clock className="w-5 h-5 text-white" />
-              </div>
-            </div>
-          </div>
-
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
             <div className="flex items-center justify-between">
               <div>
@@ -625,6 +816,28 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
               </div>
             </div>
           </div>
+
+          <div
+            onClick={() => setActiveTab("conflicts")}
+            className="p-5 rounded-lg border border-red-300 bg-red-50 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-red-700 uppercase tracking-wider">
+                  Alerta de Conflitos
+                </p>
+                <p className="text-2xl font-bold text-red-900 mt-1">
+                  {stats.conflicts}
+                </p>
+                <p className="text-xs text-red-700 mt-1">
+                  Existem alocações com sobreposição acima da capacidade.
+                </p>
+              </div>
+              <div className="p-3 rounded-full bg-red-500">
+                <AlertTriangle className="w-5 h-5 text-white" />
+              </div>
+            </div>
+          </div>
       </div>
 
       {/* Tabs */}
@@ -635,6 +848,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
             { key: "allocations", label: "Alocações", icon: List },
             { key: "engagements", label: "Por Engagement", icon: Briefcase },
             { key: "calendar", label: "Calendário", icon: CalendarDays },
+            { key: "conflicts", label: "Gestão de Conflitos", icon: AlertTriangle },
           ] as const
         ).map((tab) => (
           <button
@@ -642,7 +856,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
             onClick={() => setActiveTab(tab.key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors flex items-center gap-2 ${
               activeTab === tab.key
-                ? "bg-blue-600 text-white border-blue-600"
+                ? "bg-yellow-500 text-white border-yellow-500"
                 : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
             }`}
           >
@@ -654,17 +868,47 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
       {/* ═══════════ TIMELINE TAB ═══════════ */}
       {activeTab === "timeline" && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="flex gap-4">
+          {/* Legend - Left sidebar */}
+          <div className="flex-shrink-0 w-[160px] bg-white rounded-lg shadow-sm border border-gray-200 p-3 self-start">
+            <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Engagements</p>
+            <div className="space-y-1.5">
+              {engagements.filter((e) => e.status === "active").map((e) => (
+                <div key={e.id} className="flex items-center gap-1.5">
+                  <div
+                    className="w-3 h-3 rounded-sm flex-shrink-0"
+                    style={{ backgroundColor: e.color }}
+                  />
+                  <span className="text-[11px] text-gray-600 leading-tight">
+                    {e.code} - {e.name}
+                  </span>
+                </div>
+              ))}
+              <div className="border-t border-gray-100 pt-1.5 mt-1.5">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-3 h-3 rounded-sm bg-red-500 flex-shrink-0" />
+                  <span className="text-[11px] text-gray-600">Fe - Férias</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <div className="w-3 h-3 rounded-sm bg-cyan-500 flex-shrink-0" />
+                  <span className="text-[11px] text-gray-600">Fo - Formação</span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <div className="w-3 h-3 rounded-sm bg-gray-400 flex-shrink-0" />
+                  <span className="text-[11px] text-gray-600">Int - Interno</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Timeline content */}
+          <div className="flex-1 min-w-0 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           {/* Timeline Controls */}
           <div className="px-4 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
             {/* Date Navigation */}
             <div className="flex items-center gap-2">
               <button
-                onClick={() => {
-                  const d = new Date(timelineStart);
-                  d.setDate(d.getDate() - 7 * timelineWeeks);
-                  setTimelineStart(d);
-                }}
+                onClick={() => shiftTimeline(-1)}
                 className="p-1.5 rounded-md hover:bg-gray-200 transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -679,99 +923,223 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                   : ""}
               </span>
               <button
-                onClick={() => {
-                  const d = new Date(timelineStart);
-                  d.setDate(d.getDate() + 7 * timelineWeeks);
-                  setTimelineStart(d);
-                }}
+                onClick={() => shiftTimeline(1)}
                 className="p-1.5 rounded-md hover:bg-gray-200 transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Resource Group Filter */}
-            <div className="flex items-center gap-1.5 text-xs">
-              <button
-                onClick={() => setTimelineGroupFilter("all")}
-                className={`px-2.5 py-1 rounded-full font-medium transition-colors ${
-                  timelineGroupFilter === "all"
-                    ? "bg-gray-900 text-white"
-                    : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-100"
-                }`}
-              >
-                Todos
-                <span className="ml-1 opacity-60">{groupCounts.all}</span>
-              </button>
-              {(Object.entries(RESOURCE_GROUP_CONFIG) as [ResourceGroup, typeof RESOURCE_GROUP_CONFIG[ResourceGroup]][]).map(
-                ([key, config]) =>
-                  groupCounts[key] > 0 && (
-                    <button
-                      key={key}
-                      onClick={() => setTimelineGroupFilter(key)}
-                      className={`px-2.5 py-1 rounded-full font-medium transition-colors flex items-center gap-1.5 ${
-                        timelineGroupFilter === key
-                          ? "text-white"
-                          : "bg-white text-gray-600 border border-gray-200 hover:bg-gray-100"
-                      }`}
-                      style={
-                        timelineGroupFilter === key
-                          ? { backgroundColor: config.color }
-                          : undefined
-                      }
-                    >
-                      <span
-                        className="w-2 h-2 rounded-full"
-                        style={
-                          timelineGroupFilter !== key
-                            ? { backgroundColor: config.color }
-                            : { backgroundColor: "rgba(255,255,255,0.6)" }
-                        }
-                      />
-                      {config.label}
-                      <span className="opacity-60">{groupCounts[key]}</span>
-                    </button>
-                  )
+            {/* Multi-select Filters */}
+            <div className="flex items-center gap-2 text-xs relative">
+              <span className="text-gray-500">Filtros:</span>
+
+              {/* Groups dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setFilterDropdownOpen(filterDropdownOpen === "group" ? null : "group")}
+                  className={`px-2.5 py-1 rounded-md border transition-colors flex items-center gap-1 ${
+                    selectedGroups.size > 0
+                      ? "bg-yellow-50 border-yellow-300 text-yellow-700"
+                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  Grupos
+                  {selectedGroups.size > 0 && (
+                    <span className="ml-0.5 bg-yellow-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                      {selectedGroups.size}
+                    </span>
+                  )}
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {filterDropdownOpen === "group" && (
+                  <div className="absolute top-full mt-1 left-0 bg-white border border-gray-200 rounded-md shadow-lg z-30 min-w-[180px] py-1">
+                    {(Object.entries(RESOURCE_GROUP_CONFIG) as [ResourceGroup, typeof RESOURCE_GROUP_CONFIG[ResourceGroup]][]).map(
+                      ([key, config]) => (
+                        <label
+                          key={key}
+                          className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedGroups.has(key)}
+                            onChange={() => {
+                              setSelectedGroups((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(key)) next.delete(key);
+                                else next.add(key);
+                                return next;
+                              });
+                            }}
+                            className="rounded border-gray-300 text-yellow-500"
+                          />
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: config.color }}
+                          />
+                          <span className="text-xs text-gray-700">{config.label}</span>
+                          <span className="text-xs text-gray-400 ml-auto">{groupCounts[key] ?? 0}</span>
+                        </label>
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Workers dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setFilterDropdownOpen(filterDropdownOpen === "worker" ? null : "worker")}
+                  className={`px-2.5 py-1 rounded-md border transition-colors flex items-center gap-1 ${
+                    selectedWorkerIds.size > 0
+                      ? "bg-yellow-50 border-yellow-300 text-yellow-700"
+                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  Colaborador
+                  {selectedWorkerIds.size > 0 && (
+                    <span className="ml-0.5 bg-yellow-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                      {selectedWorkerIds.size}
+                    </span>
+                  )}
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {filterDropdownOpen === "worker" && (
+                  <div className="absolute top-full mt-1 left-0 bg-white border border-gray-200 rounded-md shadow-lg z-30 min-w-[220px] py-1 max-h-[300px] overflow-y-auto">
+                    {workers.map((w) => (
+                      <label
+                        key={w.id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedWorkerIds.has(w.id)}
+                          onChange={() => {
+                            setSelectedWorkerIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(w.id)) next.delete(w.id);
+                              else next.add(w.id);
+                              return next;
+                            });
+                          }}
+                          className="rounded border-gray-300 text-yellow-500"
+                        />
+                        <span className="text-xs text-gray-700">{w.name}</span>
+                        <span className="text-[10px] text-gray-400 ml-auto font-mono">{w.category}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Engagements dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setFilterDropdownOpen(filterDropdownOpen === "engagement" ? null : "engagement")}
+                  className={`px-2.5 py-1 rounded-md border transition-colors flex items-center gap-1 ${
+                    selectedEngagementIds.size > 0
+                      ? "bg-yellow-50 border-yellow-300 text-yellow-700"
+                      : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  Engagement
+                  {selectedEngagementIds.size > 0 && (
+                    <span className="ml-0.5 bg-yellow-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                      {selectedEngagementIds.size}
+                    </span>
+                  )}
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+                {filterDropdownOpen === "engagement" && (
+                  <div className="absolute top-full mt-1 right-0 bg-white border border-gray-200 rounded-md shadow-lg z-30 min-w-[250px] py-1 max-h-[300px] overflow-y-auto">
+                    {engagements.map((eng) => (
+                      <label
+                        key={eng.id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedEngagementIds.has(eng.id)}
+                          onChange={() => {
+                            setSelectedEngagementIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(eng.id)) next.delete(eng.id);
+                              else next.add(eng.id);
+                              return next;
+                            });
+                          }}
+                          className="rounded border-gray-300 text-yellow-500"
+                        />
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: eng.color }}
+                        />
+                        <span className="text-xs text-gray-700 truncate">{eng.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {hasAnyFilter && (
+                <button
+                  onClick={clearAllFilters}
+                  className="px-2 py-1 rounded-md text-red-600 hover:bg-red-50 transition-colors"
+                  title="Limpar todos os filtros"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
               )}
             </div>
 
-            {/* Weeks Selector */}
+            {/* Period Selector */}
             <div className="flex items-center gap-2 text-xs">
-              <span className="text-gray-500">Semanas:</span>
-              {[8, 13, 17, 26].map((n) => (
+              <span className="text-gray-500">Período:</span>
+              {([
+                { label: "Semana", period: "week", weeks: 1 },
+                { label: "Mês", period: "month", weeks: 4 },
+                { label: "Trimestre", period: "trimester", weeks: 13 },
+              ] as const).map(({ label, period }) => (
                 <button
-                  key={n}
-                  onClick={() => setTimelineWeeks(n)}
+                  key={period}
+                  onClick={() => handleTimelinePeriodChange(period)}
                   className={`px-2 py-1 rounded ${
-                    timelineWeeks === n
-                      ? "bg-blue-600 text-white"
+                    timelinePeriod === period
+                      ? "bg-yellow-500 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200"
                   }`}
                 >
-                  {n}
+                  {label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Legend */}
-          <div className="px-4 py-2 border-b border-gray-100 flex flex-wrap items-center gap-3 text-xs">
-            {engagements.filter((e) => e.status === "active").map((e) => (
-              <div key={e.id} className="flex items-center gap-1.5">
-                <div
-                  className="w-3 h-3 rounded-sm"
-                  style={{ backgroundColor: e.color }}
-                />
-                <span className="text-gray-600">
-                  {e.code} - {e.name}
-                </span>
-              </div>
-            ))}
-            <div className="flex items-center gap-1.5">
-              <div className="w-3 h-3 rounded-sm bg-red-500" />
-              <span className="text-gray-600">Fe - Férias</span>
+          {selectedTimelineInterval && (
+            <div className="px-4 py-2 border-b border-yellow-100 bg-yellow-50 flex flex-wrap items-center gap-3 text-xs">
+              <span className="text-yellow-800 font-medium">
+                {selectedTimelineInterval.weeksCount} semana(s) selecionada(s)
+              </span>
+              <span className="text-yellow-700">
+                {workerMap.get(selectedTimelineInterval.workerId)?.name ?? "Colaborador"}
+              </span>
+              <span className="text-yellow-700">
+                {formatDate(selectedTimelineInterval.startDate)} - {formatDate(selectedTimelineInterval.endDate)}
+              </span>
+              <button
+                onClick={handleQuickAddFromSelection}
+                className="ml-auto px-2.5 py-1 rounded-md bg-yellow-500 text-white hover:bg-yellow-600 transition-colors"
+              >
+                Nova alocação nas semanas selecionadas
+              </button>
+              <button
+                onClick={clearTimelineSelection}
+                className="px-2 py-1 rounded-md text-yellow-700 hover:bg-yellow-100 transition-colors"
+              >
+                Limpar seleção
+              </button>
             </div>
-          </div>
+          )}
 
           {/* Timeline Grid */}
           <div className="overflow-x-auto">
@@ -779,20 +1147,20 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
               <thead>
                 {/* Month headers */}
                 <tr className="bg-gray-50">
-                  <th className="sticky left-0 z-20 bg-gray-50 min-w-[200px] px-3 py-1 text-left border-b border-r border-gray-200" rowSpan={2}>
+                  <th className="sticky left-0 z-20 bg-gray-50 w-[200px] min-w-[200px] max-w-[200px] px-3 py-1 text-left border-b border-r border-gray-200" rowSpan={2}>
                     <span className="text-xs font-semibold text-gray-700">Colaborador</span>
                   </th>
-                  <th className="sticky left-[200px] z-20 bg-gray-50 min-w-[50px] px-2 py-1 text-center border-b border-r border-gray-200" rowSpan={2}>
+                  <th className="sticky left-[200px] z-20 bg-gray-50 w-[50px] min-w-[50px] max-w-[50px] px-2 py-1 text-center border-b border-r border-gray-200" rowSpan={2}>
                     <span className="text-xs font-semibold text-gray-700">Cat.</span>
                   </th>
-                  <th className="sticky left-[250px] z-20 bg-gray-50 min-w-[55px] px-2 py-1 text-center border-b border-r border-gray-200" rowSpan={2}>
+                  <th className="sticky left-[250px] z-20 bg-gray-50 w-[55px] min-w-[55px] max-w-[55px] px-2 py-1 text-center border-b border-r border-gray-200" rowSpan={2}>
                     <span className="text-xs font-semibold text-gray-700">Charg.</span>
                   </th>
                   {getTimelineMonthHeaders().map((mh, i) => (
                     <th
                       key={i}
                       colSpan={mh.span}
-                      className="px-2 py-1.5 text-center border-b border-r border-gray-200 font-semibold text-gray-800 bg-blue-50"
+                      className="px-2 py-1.5 text-center border-b border-r border-gray-200 font-semibold text-gray-800 bg-yellow-50"
                     >
                       {mh.label}
                     </th>
@@ -815,7 +1183,10 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                 {timelineData.map((wt, idx) => {
                   const currentGroup = getResourceGroup(wt.worker.category);
                   const prevGroup = idx > 0 ? getResourceGroup(timelineData[idx - 1].worker.category) : null;
-                  const showGroupHeader = timelineGroupFilter === "all" && currentGroup !== prevGroup;
+                  const shouldShowGroupSections =
+                    !hasAnyFilter || selectedGroups.size > 0;
+                  const showGroupHeader = shouldShowGroupSections && currentGroup !== prevGroup;
+                  const isGroupCollapsed = shouldShowGroupSections && collapsedGroups[currentGroup];
                   const groupConfig = RESOURCE_GROUP_CONFIG[currentGroup];
                   const totalCols = 3 + (timelineDataAll[0]?.cells.length ?? 0);
 
@@ -828,19 +1199,30 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                             className="sticky left-0 z-10 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider border-b border-gray-200"
                             style={{ backgroundColor: `${groupConfig.color}10`, color: groupConfig.color }}
                           >
-                            <span className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => toggleGroupCollapse(currentGroup)}
+                              className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+                              title={isGroupCollapsed ? "Expandir secção" : "Colapsar secção"}
+                            >
+                              {isGroupCollapsed ? (
+                                <ChevronRight className="w-3 h-3" />
+                              ) : (
+                                <ChevronDown className="w-3 h-3" />
+                              )}
                               <span
                                 className="w-2 h-2 rounded-full"
                                 style={{ backgroundColor: groupConfig.color }}
                               />
                               {groupConfig.label}
-                            </span>
+                            </button>
                           </td>
                         </tr>
                       )}
+                      {!isGroupCollapsed && (
                       <tr className="hover:bg-gray-50/50 group">
                     {/* Worker name */}
-                    <td className="sticky left-0 z-10 bg-white group-hover:bg-gray-50 px-3 py-1.5 border-b border-r border-gray-200 whitespace-nowrap">
+                    <td className="sticky left-0 z-10 bg-white group-hover:bg-gray-50 w-[200px] min-w-[200px] max-w-[200px] px-3 py-1.5 border-b border-r border-gray-200 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-medium text-gray-600">
                           {wt.worker.name
@@ -855,13 +1237,13 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                       </div>
                     </td>
                     {/* Category */}
-                    <td className="sticky left-[200px] z-10 bg-white group-hover:bg-gray-50 px-2 py-1.5 border-b border-r border-gray-200 text-center">
+                    <td className="sticky left-[200px] z-10 bg-white group-hover:bg-gray-50 w-[50px] min-w-[50px] max-w-[50px] px-2 py-1.5 border-b border-r border-gray-200 text-center">
                       <span className="text-[10px] font-mono font-medium text-gray-500">
                         {wt.worker.category}
                       </span>
                     </td>
                     {/* Chargeability */}
-                    <td className="sticky left-[250px] z-10 bg-white group-hover:bg-gray-50 px-2 py-1.5 border-b border-r border-gray-200 text-center">
+                    <td className="sticky left-[250px] z-10 bg-white group-hover:bg-gray-50 w-[55px] min-w-[55px] max-w-[55px] px-2 py-1.5 border-b border-r border-gray-200 text-center">
                       <span
                         className={`text-xs font-semibold ${
                           wt.chargeability >= 0.75
@@ -880,15 +1262,26 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                     {wt.cells.map((cell, ci) => {
                       const isEmpty = cell.allocations.length === 0;
                       const isSingle = cell.allocations.length === 1;
+                      const weekKey = `${cell.week.startDate}|${cell.week.endDate}`;
+                      const isSelected =
+                        quickAddWorkerId === wt.worker.id &&
+                        selectedTimelineWeeks.has(weekKey);
 
                       return (
                         <td
                           key={ci}
-                          className={`px-0.5 py-0.5 border-b border-r border-gray-200 text-center ${
+                          onClick={() =>
+                            toggleTimelineWeekSelection(
+                              wt.worker.id,
+                              cell.week.startDate,
+                              cell.week.endDate
+                            )
+                          }
+                          className={`px-0.5 py-0.5 border-b border-r border-gray-200 text-center cursor-pointer transition-colors ${
                             cell.isOverallocated ? "ring-1 ring-inset ring-red-400" : ""
-                          }`}
+                          } ${isSelected ? "ring-2 ring-inset ring-yellow-500 bg-yellow-50" : "hover:bg-yellow-50/60"}`}
                           title={
-                            isEmpty
+                            (isEmpty
                               ? "Sem alocação"
                               : cell.allocations
                                   .map(
@@ -896,7 +1289,8 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                                       `${a.engagementCode} (${Math.round(a.percent * 100)}%)`
                                   )
                                   .join(", ") +
-                                ` — Total: ${Math.round(cell.totalPercent * 100)}%`
+                                ` — Total: ${Math.round(cell.totalPercent * 100)}%`) +
+                            " · Clique para selecionar semana"
                           }
                         >
                           {isEmpty ? (
@@ -925,12 +1319,14 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                       );
                     })}
                       </tr>
+                      )}
                     </React.Fragment>
                   );
                 })}
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 
@@ -1108,6 +1504,13 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                         <span className="ml-1">{getStatusLabel(allocation.status)}</span>
                       </span>
                       <button
+                        onClick={() => openEditModal(allocation)}
+                        className="p-1 text-gray-400 hover:text-yellow-500 transition-colors"
+                        title="Editar alocação"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => handleDeleteAllocation(allocation.id)}
                         className="p-1 text-gray-400 hover:text-red-500 transition-colors"
                         title="Remover alocação"
@@ -1220,7 +1623,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                   <div className="w-full bg-gray-200 rounded-full h-2">
                     <div
                       className={`h-2 rounded-full transition-all ${
-                        isOver ? "bg-red-500" : "bg-blue-500"
+                        isOver ? "bg-red-500" : "bg-yellow-500"
                       }`}
                       style={{ width: `${Math.min(usagePct, 100)}%` }}
                     />
@@ -1420,15 +1823,196 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
         </div>
       )}
 
+      {/* ═══════════ CONFLICTS TAB ═══════════ */}
+      {activeTab === "conflicts" && (
+        <div className="space-y-6">
+          {conflictsList.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-lg p-12 text-center shadow-sm">
+              <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+              <p className="text-lg font-semibold text-gray-900">Sem conflitos</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Não existem alocações com sobreposição acima da capacidade.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-full bg-red-100">
+                    <AlertTriangle className="w-5 h-5 text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">
+                      {conflictsList.length} conflito(s) detetado(s)
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Reveja e resolva as sobreposições de alocação abaixo.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {conflictsList.map((conflict, idx) => {
+                  const worker = workerMap.get(conflict.allocation.workerId);
+                  const engagement = conflict.allocation.engagementId
+                    ? engagementMap.get(conflict.allocation.engagementId)
+                    : null;
+
+                  // Compute total overlap FTE
+                  const totalFte =
+                    conflict.allocation.percent +
+                    conflict.conflictingWith.reduce((s, c) => s + c.percent, 0);
+
+                  return (
+                    <div
+                      key={`conflict-${conflict.allocation.id}-${idx}`}
+                      className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden"
+                    >
+                      {/* Worker header */}
+                      <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-xs font-medium text-gray-600">
+                            {worker?.name
+                              .split(" ")
+                              .map((n) => n[0])
+                              .slice(0, 2)
+                              .join("") ?? "?"}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {worker?.name ?? "Colaborador"}
+                            </p>
+                            <p className="text-xs text-gray-500">{worker?.category} · {worker?.role}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                            {Math.round(totalFte * 100)}% FTE total
+                          </span>
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                            Cap. {Math.round((worker?.capacityFte ?? 1) * 100)}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Main allocation */}
+                      <div className="px-5 py-3 border-b border-red-100 bg-red-50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-xs ${getAllocationTone(
+                                conflict.allocation.type
+                              )}`}
+                            >
+                              {getAllocationLabel(conflict.allocation)}
+                            </span>
+                            {engagement && (
+                              <span className="flex items-center gap-1 text-xs text-gray-600">
+                                <div
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: engagement.color }}
+                                />
+                                {engagement.name}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-600">
+                            <span>
+                              {formatDate(conflict.allocation.startDate)} - {formatDate(conflict.allocation.endDate)}
+                            </span>
+                            <span className="font-semibold">
+                              {Math.round(conflict.allocation.percent * 100)}% FTE
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Conflicting allocations */}
+                      <div className="px-5 py-3">
+                        <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                          Conflita com ({conflict.conflictingWith.length})
+                        </p>
+                        <div className="space-y-2">
+                          {conflict.conflictingWith.map((c) => {
+                            const cEng = c.engagementId
+                              ? engagementMap.get(c.engagementId)
+                              : null;
+                            return (
+                              <div
+                                key={c.id}
+                                className="flex items-center justify-between py-1.5 px-3 bg-gray-50 rounded-md"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-xs ${getAllocationTone(c.type)}`}
+                                  >
+                                    {getAllocationLabel(c)}
+                                  </span>
+                                  {cEng && (
+                                    <span className="flex items-center gap-1 text-xs text-gray-500">
+                                      <div
+                                        className="w-2 h-2 rounded-full"
+                                        style={{ backgroundColor: cEng.color }}
+                                      />
+                                      {cEng.name}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-gray-500">
+                                  <span>
+                                    {formatDate(c.startDate)} - {formatDate(c.endDate)}
+                                  </span>
+                                  <span className="font-semibold">
+                                    {Math.round(c.percent * 100)}% FTE
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedConflict(conflict)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors"
+                        >
+                          Resolver
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAllocation(conflict.allocation.id)}
+                          className="px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors flex items-center gap-1"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Remover
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ═══════════ CREATE FORM MODAL ═══════════ */}
       {showCreateForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full">
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900">Nova Alocação</h2>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {editingAllocationId ? "Editar Alocação" : "Nova Alocação"}
+                </h2>
                 <button
-                  onClick={() => setShowCreateForm(false)}
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setEditingAllocationId(null);
+                    setNewAllocation({ type: "projeto", status: "planned", percent: 1.0 });
+                  }}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-5 h-5" />
@@ -1438,7 +2022,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
               <div className="space-y-4">
                 {/* Worker */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Colaborador *
                   </label>
                   <select
@@ -1446,7 +2030,8 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                     onChange={(e) =>
                       setNewAllocation({ ...newAllocation, workerId: e.target.value })
                     }
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    disabled={!!editingAllocationId}
+                    className={`w-full border rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 ${editingAllocationId ? "border-gray-300 bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-300"}`}
                   >
                     <option value="">Selecionar...</option>
                     {workers.map((w) => (
@@ -1459,7 +2044,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
                 {/* Type */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Tipo *
                   </label>
                   <select
@@ -1471,7 +2056,8 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                         engagementId: e.target.value !== "projeto" ? undefined : newAllocation.engagementId,
                       })
                     }
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    disabled={!!editingAllocationId}
+                    className={`w-full border rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 ${editingAllocationId ? "border-gray-300 bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-300"}`}
                   >
                     <option value="projeto">Projeto</option>
                     <option value="ferias">Férias</option>
@@ -1483,7 +2069,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                 {/* Engagement (only for projeto) */}
                 {newAllocation.type === "projeto" && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Engagement *
                     </label>
                     <select
@@ -1491,7 +2077,8 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                       onChange={(e) =>
                         setNewAllocation({ ...newAllocation, engagementId: e.target.value })
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      disabled={!!editingAllocationId}
+                      className={`w-full border rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500 ${editingAllocationId ? "border-gray-300 bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-300"}`}
                     >
                       <option value="">Selecionar...</option>
                       {engagements
@@ -1508,7 +2095,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                 {/* Dates */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Data Início *
                     </label>
                     <input
@@ -1517,11 +2104,11 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                       onChange={(e) =>
                         setNewAllocation({ ...newAllocation, startDate: e.target.value })
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Data Fim *
                     </label>
                     <input
@@ -1530,14 +2117,14 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                       onChange={(e) =>
                         setNewAllocation({ ...newAllocation, endDate: e.target.value })
                       }
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
                     />
                   </div>
                 </div>
 
                 {/* Percent */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     % FTE *
                   </label>
                   <div className="flex items-center gap-3">
@@ -1563,7 +2150,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
                 {/* Status */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Estado
                   </label>
                   <select
@@ -1574,7 +2161,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                         status: e.target.value as AllocationStatus,
                       })
                     }
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
                   >
                     <option value="planned">Planeado</option>
                     <option value="active">Ativo</option>
@@ -1583,7 +2170,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
                 {/* Notes */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
                     Notas
                   </label>
                   <textarea
@@ -1592,7 +2179,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                       setNewAllocation({ ...newAllocation, notes: e.target.value })
                     }
                     rows={2}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                    className="w-full border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-yellow-500 focus:border-yellow-500"
                     placeholder="Notas opcionais..."
                   />
                 </div>
@@ -1600,16 +2187,20 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
 
               <div className="mt-6 flex justify-end gap-3">
                 <button
-                  onClick={() => setShowCreateForm(false)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setEditingAllocationId(null);
+                    setNewAllocation({ type: "projeto", status: "planned", percent: 1.0 });
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
                 >
                   Cancelar
                 </button>
                 <button
-                  onClick={handleCreateAllocation}
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                  onClick={editingAllocationId ? handleEditAllocation : handleCreateAllocation}
+                  className="px-4 py-2 text-sm font-medium text-white bg-yellow-500 border border-transparent rounded-md hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
                 >
-                  Criar Alocação
+                  {editingAllocationId ? "Guardar Alterações" : "Criar Alocação"}
                 </button>
               </div>
             </div>
@@ -1721,9 +2312,9 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
                   <div className="space-y-2">
                     <button
                       onClick={() => handleResolveConflict("adjust")}
-                      className="w-full flex items-center gap-3 p-3 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors text-left"
+                      className="w-full flex items-center gap-3 p-3 border border-yellow-200 rounded-lg hover:bg-yellow-50 transition-colors text-left"
                     >
-                      <Edit3 className="w-4 h-4 text-blue-600" />
+                      <Edit3 className="w-4 h-4 text-yellow-600" />
                       <div>
                         <p className="text-sm font-medium text-gray-900">Ajustar Datas</p>
                         <p className="text-xs text-gray-600">
@@ -1766,7 +2357,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
               <div className="mt-6 flex justify-end">
                 <button
                   onClick={() => setSelectedConflict(null)}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
                 >
                   Cancelar
                 </button>
@@ -1784,7 +2375,7 @@ export const AllocationsDashboard: React.FC<AllocationsDashboardProps> = ({
               ? "bg-green-500 text-white"
               : toast.type === "error"
               ? "bg-red-500 text-white"
-              : "bg-blue-500 text-white"
+              : "bg-yellow-500 text-white"
           }`}
         >
           {toast.type === "success" && <CheckCircle className="w-5 h-5" />}
